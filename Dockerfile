@@ -23,7 +23,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Make port 8000 available to the world outside this container
 EXPOSE 8000
 
-# Fix: Use the python interpreter to run the gunicorn module directly.
-# This ensures that the gunicorn program is executed using the Python environment
-# where it was installed, bypassing any PATH issues in the shell startup.
-CMD ["python", "-m", "gunicorn", "--bind", "0.0.0.0:8000", "app:app"]
+# Fix: Use the absolute path to the Python interpreter to run the gunicorn module directly.
+# This bypasses any PATH environment issues caused by the hosting platform (Render).
+# The gunicorn executable is resolved by Python's module system.
+CMD ["/usr/local/bin/python", "-m", "gunicorn", "--bind", "0.0.0.0:8000", "app:app"]
