@@ -1,8 +1,7 @@
 Flask
-requests
 supabase
 librosa
 soundfile
 basic-pitch
 numpy
-pydub
+requests
