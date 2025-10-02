@@ -5,6 +5,7 @@ FROM python:3.9-slim-buster
 WORKDIR /app
 
 # Install system dependencies required for soundfile and other packages
+# We keep these dependencies because they are necessary for your backend's libraries
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     libsndfile1 \
@@ -22,5 +23,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Make port 8000 available to the world outside this container
 EXPOSE 8000
 
-# Run gunicorn when the container launches
-CMD ["gunicorn", "--bind", "0.0.0.0:8000", "app:app"]
+# Fix: Use the python interpreter to run the gunicorn module directly.
+# This ensures that the gunicorn program is executed using the Python environment
+# where it was installed, bypassing any PATH issues in the shell startup.
+CMD ["python", "-m", "gunicorn", "--bind", "0.0.0.0:8000", "app:app"]
