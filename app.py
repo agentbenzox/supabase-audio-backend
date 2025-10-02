@@ -37,107 +37,133 @@ def get_semitone_shift(current_key, target_key):
 
 @app.route("/process-audio", methods=["POST"])
 def process_audio():
-    temp_dir = None
     try:
-        data = request.get_json()
+        data = request.json
         audio_file_url = data.get("audio_file_url")
         user_id = data.get("user_id")
         audio_file_id = data.get("audio_file_id")
         desired_key = data.get("desired_key")
         desired_tempo = data.get("desired_tempo")
-        process_midi = data.get("process_midi", True) # Default to True
 
         if not all([audio_file_url, user_id, audio_file_id]):
             return jsonify({"status": "error", "message": "Missing required parameters"}), 400
 
-        temp_dir = tempfile.mkdtemp()
-        original_audio_path = os.path.join(temp_dir, f"original_{audio_file_id}.wav")
-        processed_audio_path = os.path.join(temp_dir, f"processed_{audio_file_id}.wav")
-        midi_output_path = os.path.join(temp_dir, f"midi_{audio_file_id}.mid")
+        # Create a temporary directory for processing
+        with tempfile.TemporaryDirectory() as tmpdir:
+            local_audio_path = os.path.join(tmpdir, "input_audio.wav")
+            processed_audio_path = os.path.join(tmpdir, "processed_audio.wav")
+            midi_output_dir = os.path.join(tmpdir, "midi_output")
+            os.makedirs(midi_output_dir, exist_ok=True)
 
-        # --- 1. Download Audio File from Supabase Storage ---
-        response = requests.get(audio_file_url)
-        response.raise_for_status() # Raise an exception for HTTP errors
+            # --- 1. Download Audio File from Supabase Storage ---
+            response = requests.get(audio_file_url, stream=True)
+            response.raise_for_status() # Raise an exception for HTTP errors
+            with open(local_audio_path, "wb") as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    f.write(chunk)
 
-        with open(original_audio_path, "wb") as f:
-            f.write(response.content)
+            # --- 2. Audio Analysis (Key & Tempo Detection via SoundStat.info) ---
+            detected_key = None
+            detected_tempo = None
+            if SOUNDSTAT_API_URL and SOUNDSTAT_API_KEY:
+                try:
+                    with open(local_audio_path, "rb") as f_audio:
+                        soundstat_response = requests.post(
+                            SOUNDSTAT_API_URL,
+                            headers={
+                                "Authorization": f"Bearer {SOUNDSTAT_API_KEY}",
+                                "Content-Type": "audio/wav"
+                            },
+                            data=f_audio
+                        )
+                    soundstat_response.raise_for_status()
+                    analysis_results = soundstat_response.json()
+                    # Assuming SoundStat.info returns 'key' and 'tempo' directly
+                    detected_key = analysis_results.get("key")
+                    detected_tempo = analysis_results.get("tempo")
+                    print(f"SoundStat Analysis: Key={detected_key}, Tempo={detected_tempo}")
+                except requests.exceptions.RequestException as e:
+                    print(f"SoundStat API call failed: {e}")
+                except Exception as e:
+                    print(f"Error parsing SoundStat response: {e}")
 
-        y, sr = librosa.load(original_audio_path, sr=None) # Load with original sample rate
+            # --- 3. Audio Modification (Pitch Shifting & Time Stretching) ---
+            y, sr = librosa.load(local_audio_path, sr=None) # Load audio with original sample rate
+            modified_y = y
+            modified_sr = sr
+            processed_audio_url = None
 
-        # --- 2. Audio Analysis (Key & Tempo Detection) - if not already done by Edge Function ---
-        # This is a fallback/redundancy. The Edge Function is designed to do this.
-        detected_key = None
-        detected_tempo = None
-        if SOUNDSTAT_API_URL and SOUNDSTAT_API_KEY:
-            try:
-                analysis_payload = {"audio_url": audio_file_url}
-                analysis_headers = {"Content-Type": "application/json", "Authorization": f"Bearer {SOUNDSTAT_API_KEY}"}
-                analysis_response = requests.post(SOUNDSTAT_API_URL, json=analysis_payload, headers=analysis_headers)
-                analysis_response.raise_for_status()
-                analysis_result = analysis_response.json()
-                detected_key = analysis_result["audio_analysis"]["key"]["value"] # Adjust based on actual API response
-                detected_tempo = analysis_result["audio_analysis"]["tempo"]["value"] # Adjust based on actual API response
-            except Exception as e:
-                print(f"SoundStat API call failed: {e}")
-
-        # --- 3. Audio Modification (Pitch Shifting & Time Stretching) ---
-        modified_y = y
-        processed_audio_url = None
-
-        if desired_key or desired_tempo:
             # Pitch Shifting
             if desired_key and detected_key: # Only shift if a desired key and detected key are available
                 semitone_shift = get_semitone_shift(detected_key, desired_key)
                 if semitone_shift != 0:
                     modified_y = librosa.effects.pitch_shift(y=modified_y, sr=sr, n_steps=semitone_shift)
+                    print(f"Pitch shifted by {semitone_shift} semitones.")
 
-            # Time Stretching
+            # Time Stretching (Tempo Modification)
             if desired_tempo and detected_tempo: # Only stretch if a desired tempo and detected tempo are available
-                if detected_tempo > 0: # Avoid division by zero
-                    rate = desired_tempo / detected_tempo
-                    modified_y = librosa.effects.time_stretch(y=modified_y, rate=rate)
+                tempo_ratio = desired_tempo / detected_tempo
+                if tempo_ratio != 1.0:
+                    modified_y = librosa.effects.time_stretch(y=modified_y, rate=tempo_ratio)
+                    print(f"Time stretched by ratio {tempo_ratio}.")
 
-            # Save processed audio
-            sf.write(processed_audio_path, modified_y, sr)
+            # Save processed audio if any modification occurred
+            if np.array_equal(y, modified_y) == False: # Check if audio was actually modified
+                sf.write(processed_audio_path, modified_y, modified_sr)
+                # Upload processed audio to Supabase Storage
+                with open(processed_audio_path, "rb") as f:
+                    storage_path = f"processed_audio/{user_id}/{audio_file_id}_processed.wav"
+                    # CORRECTED LINE HERE
+                    supabase.storage.from("processed-audio").upload(storage_path, f, file_options={"contentType": "audio/wav"})
+                    processed_audio_url = supabase.storage.from("processed-audio").get_public_url(storage_path)
+                    print(f"Processed audio uploaded to: {processed_audio_url}")
 
-            # Upload processed audio to Supabase Storage
-            with open(processed_audio_path, "rb") as f:
-                processed_file_name = f"processed_{audio_file_id}.wav"
-                storage_path = f"{user_id}/{processed_file_name}"
-                supabase.storage.from("processed-audio").upload(storage_path, f.read(), {"contentType": "audio/wav"})
-                processed_audio_url = f"{SUPABASE_URL}/storage/v1/object/public/processed-audio/{storage_path}"
+            # --- 4. Audio to MIDI Conversion (Basic-Pitch) ---
+            midi_file_url = None
+            try:
+                # Basic-Pitch expects a list of audio paths
+                predict_and_save_midi(audio_path_list=[local_audio_path], output_dir=midi_output_dir)
+                midi_filename = os.path.join(midi_output_dir, os.listdir(midi_output_dir)[0]) # Assuming one MIDI file generated
 
-        # --- 4. Audio to MIDI Conversion ---
-        midi_file_url = None
-        if process_midi:
-            # Basic-Pitch expects a list of audio paths and an output directory
-            predict_and_save_midi(audio_paths=[original_audio_path], output_dir=temp_dir)
+                with open(midi_filename, "rb") as f:
+                    storage_path = f"midi_files/{user_id}/{audio_file_id}.mid"
+                    supabase.storage.from("midi-files").upload(storage_path, f, file_options={"contentType": "audio/midi"})
+                    midi_file_url = supabase.storage.from("midi-files").get_public_url(storage_path)
+                    print(f"MIDI file uploaded to: {midi_file_url}")
+            except Exception as e:
+                print(f"Error during MIDI conversion or upload: {e}")
 
-            # Upload MIDI file to Supabase Storage
-            with open(midi_output_path, "rb") as f:
-                midi_file_name = f"midi_{audio_file_id}.mid"
-                storage_path = f"{user_id}/{midi_file_name}"
-                supabase.storage.from("midi-files").upload(storage_path, f.read(), {"contentType": "audio/midi"})
-                midi_file_url = f"{SUPABASE_URL}/storage/v1/object/public/midi-files/{storage_path}"
+            # --- 5. Update Supabase Database with Results ---
+            update_data = {
+                "status": "analyzed",
+                "detected_key": detected_key,
+                "detected_tempo": detected_tempo,
+            }
+            if processed_audio_url:
+                update_data["processed_audio_url"] = processed_audio_url
+                update_data["status"] = "modified" # Update status if modified audio is present
+            if midi_file_url:
+                update_data["midi_file_url"] = midi_file_url
 
-        return jsonify({
-            "status": "success",
-            "message": "Audio processed successfully",
-            "processed_audio_url": processed_audio_url,
-            "midi_file_url": midi_file_url,
-            "detected_key": detected_key, # Return detected key/tempo for consistency
-            "detected_tempo": detected_tempo,
-        }), 200
+            response_db = supabase.table("audio_files").update(update_data).eq("id", audio_file_id).execute()
+            response_db.raise_for_status()
+            print(f"Database updated for audio_file_id: {audio_file_id}")
+
+            return jsonify({
+                "status": "success",
+                "message": "Audio processed successfully",
+                "detected_key": detected_key,
+                "detected_tempo": detected_tempo,
+                "processed_audio_url": processed_audio_url,
+                "midi_file_url": midi_file_url
+            }), 200
 
     except requests.exceptions.RequestException as e:
         print(f"HTTP Request Error: {e}")
-        return jsonify({"status": "error", "message": f"Failed to download audio or call external API: {e}"}), 500
+        return jsonify({"status": "error", "message": f"External service error: {e}"}), 500
     except Exception as e:
-        print(f"Unexpected error: {e}")
+        print(f"An unexpected error occurred: {e}")
         return jsonify({"status": "error", "message": f"An unexpected error occurred: {e}"}), 500
-    finally:
-        if temp_dir and os.path.exists(temp_dir):
-            shutil.rmtree(temp_dir) # Clean up temporary files
 
 if __name__ == "__main__":
-    app.run(debug=True, port=os.getenv("PORT", 5000))
+    app.run(debug=True, host="0.0.0.0", port=os.environ.get("PORT", 5000))
