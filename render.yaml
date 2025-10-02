@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: supabase-audio-backend
+    env: python
+    plan: free
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "python app.py"
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.9.9 # Specify a stable Python version
+    buildFilters:
+      - paths:
+        - "**"
+    packages:
+      - name: libsndfile-dev
+      - name: python3-dev
+      - name: build-essential
