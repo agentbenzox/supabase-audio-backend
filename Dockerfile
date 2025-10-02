@@ -5,7 +5,6 @@ FROM python:3.9-slim-buster
 WORKDIR /app
 
 # Install system dependencies required for soundfile and other packages
-# We keep these dependencies because they are necessary for your backend's libraries
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     libsndfile1 \
@@ -29,6 +28,6 @@ USER appuser
 # Make port 8000 available to the world outside this container
 EXPOSE 8000
 
-# Fix: Tune Gunicorn workers and use the correct command.
-# Using 4 workers is a standard recommendation for modern servers.
-CMD ["/usr/local/bin/gunicorn", "-w", "4", "--bind", "0.0.0.0:8000", "app:app"]
+# CRITICAL FIX: Run Gunicorn via the Python interpreter for reliability.
+# We explicitly call the shell to run the python command as a module.
+CMD ["sh", "-c", "python -m gunicorn -w 4 --bind 0.0.0.0:8000 app:app"]
