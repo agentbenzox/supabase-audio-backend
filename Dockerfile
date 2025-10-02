@@ -5,6 +5,7 @@ FROM python:3.9-slim-buster
 WORKDIR /app
 
 # Install system dependencies required for soundfile and other packages
+# We keep these dependencies because they are necessary for your backend's libraries
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     libsndfile1 \
@@ -19,9 +20,15 @@ COPY . /app
 # Install any needed packages specified in requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Create a non-root user for security
+RUN useradd -m appuser
+
+# Switch to the non-root user
+USER appuser
+
 # Make port 8000 available to the world outside this container
 EXPOSE 8000
 
-# Fix: We use the explicit path to the installed gunicorn executable within the container's virtual environment setup.
-# This path is where pip installs executables for the system Python.
-CMD ["/usr/local/bin/gunicorn", "--bind", "0.0.0.0:8000", "app:app"]
+# Fix: Tune Gunicorn workers and use the correct command.
+# Using 4 workers is a standard recommendation for modern servers.
+CMD ["/usr/local/bin/gunicorn", "-w", "4", "--bind", "0.0.0.0:8000", "app:app"]
