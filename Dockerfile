@@ -10,8 +10,14 @@ RUN apt-get update && \
     libsndfile1 \
     libsndfile-dev \
     build-essential \
-    python3-dev && \
+    python3-dev \
+    # Add these for potential build issues
+    pkg-config \
+    && \
     rm -rf /var/lib/apt/lists/*
+
+# Upgrade pip and setuptools
+RUN pip install --upgrade pip setuptools wheel
 
 # Copy the current directory contents into the container at /app
 COPY . /app
@@ -19,15 +25,8 @@ COPY . /app
 # Install any needed packages specified in requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Create a non-root user for security
-RUN useradd -m appuser
-
-# Switch to the non-root user
-USER appuser
-
 # Make port 8000 available to the world outside this container
 EXPOSE 8000
 
-# CRITICAL FIX: Run Gunicorn via the Python interpreter for reliability.
-# We explicitly call the shell to run the python command as a module.
-CMD ["sh", "-c", "python -m gunicorn -w 4 --bind 0.0.0.0:8000 app:app"]
+# Run gunicorn when the container launches
+CMD ["gunicorn", "--bind", "0.0.0.0:8000", "app:app"]
