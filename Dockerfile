@@ -11,7 +11,6 @@ RUN apt-get update && \
     libsndfile-dev \
     build-essential \
     python3-dev \
-    # Add these for potential build issues
     pkg-config \
     && \
     rm -rf /var/lib/apt/lists/*
