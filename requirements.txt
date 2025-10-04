@@ -1,8 +1,2 @@
 Flask
 supabase-py
-librosa
-soundfile
-basic-pitch
-numpy
-requests
-gunicorn
