@@ -28,4 +28,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 EXPOSE 8000
 
 # Run gunicorn when the container launches
-CMD ["sh", "-c", "python -m gunicorn -w 4 --bind 0.0.0.0:8000 app:app"]
+CMD ["sh", "-c", "python -m gunicorn -w 4 --bind 0.0.0.0:${PORT:-8000} app:app"]
