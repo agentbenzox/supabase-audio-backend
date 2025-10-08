@@ -1,5 +1,5 @@
 Flask
-supabase-py
+supabase
 librosa
 soundfile
 basic-pitch
