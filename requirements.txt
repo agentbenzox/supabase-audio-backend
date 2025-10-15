@@ -5,3 +5,4 @@ soundfile
 basic-pitch
 requests
 gunicorn
+Flask-CORS
