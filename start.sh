@@ -3,4 +3,4 @@
 set -e
 
 # Run Gunicorn
-exec gunicorn --bind 0.0.0.0:$PORT app:app
+exec /home/appuser/venv/bin/gunicorn -w 4 'app:app' -b 0.0.0.0:$PORT

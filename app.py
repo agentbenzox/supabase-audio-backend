@@ -30,6 +30,7 @@ CORS(app, origins=[
     "http://192.168.38.101:8000",
     "http://192.168.38.101",
     "http://localhost:3000" # Common local development environment
+    "https://duke-unshaking-alternatively.ngrok-free.dev"
 ]) 
 
 # --- Core Processing Function ---
