@@ -12,7 +12,7 @@ from basic_pitch.inference import predict
 
 # --- Configuration ---
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
-SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
+SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
 
 # --- Initialize Supabase Client ---
 # Ensure SUPABASE_URL and SUPABASE_KEY are set as environment variables
